@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOC Architect Pro | Dead State & Logic</title>
+    <style>
+        :root {
+            --primary: #000;
+            --active: #0000ff;
+            --success: #22c55e;
+            --danger: #ef4444;
+            /* --accent: #fef08a; */
+            --accent: #fc53ffb2;
+            --border: 2.2px solid #fc53ffb2;
+            --edit: #00ffe5;
+            --dead: #555555;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0; display: flex; height: 100vh; overflow: hidden;
+            background-color: #f4f4f4; color: var(--primary);
+        }
+
+        .side-panel {
+            width: 380px; background: #fff; border: var(--border);
+            margin: 10px; padding: 15px; display: flex; flex-direction: column;
+            gap: 15px; overflow-y: auto; border-radius: 8px;
+        }
+
+        #canvas-container {
+            flex-grow: 1; position: relative; background: white;
+            border: var(--border); margin: 10px 0; border-radius: 8px;
+            overflow: hidden; cursor: crosshair;
+            background-image: radial-gradient(#ddd 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .q-builder { background: #f9f9f9; padding: 10px; border: 1px dashed #000; }
+        select, input { 
+            font-family: inherit; padding: 5px; border: 1px solid #000; 
+            margin: 2px 0; width: 100%; box-sizing: border-box;
+        }
+
+        .tape-container { display: flex; gap: 5px; margin: 10px 0; justify-content: center; position: relative; padding-bottom: 25px; min-height: 40px;}
+        .tape-cell {
+            width: 35px; height: 35px; border: 1px solid #000;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; background: #fff;
+        }
+        .tape-cell.head { background: var(--accent); border-bottom: 3px solid var(--active); }
+        #string-ptr { position: absolute; bottom: 0; font-size: 18px; transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); color: var(--active); font-weight: bold; }
+
+        /* AUTOMATA ELEMENTS */
+        .state {
+            position: absolute; width: 60px; height: 60px;
+            border: 2px solid #000; border-radius: 50%;
+            background: #fff; display: flex; align-items: center;
+            justify-content: center; font-weight: bold; z-index: 10;
+            transition: background 0.2s, transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+        .state.final { box-shadow: 0 0 0 3px #fff, 0 0 0 5px #000; }
+        .state.dead { background: var(--dead) !important; color: white; border-color: #000; }
+        
+        @keyframes statePulse {
+            0% { transform: scale(1.1); box-shadow: 0 0 15px var(--active); }
+            50% { transform: scale(1.3); box-shadow: 0 0 25px var(--active); }
+            100% { transform: scale(1.1); box-shadow: 0 0 15px var(--active); }
+        }
+        .state.current { 
+            background: var(--active) !important; 
+            color: white; 
+            animation: statePulse 0.4s ease-in-out;
+            z-index: 15;
+        }
+
+        .state.start-node::before { content: 'start➤'; position: absolute; left: -55px; color: black; font-size: 12px; font-weight: bold; }
+        
+        /* HOVER EFFECTS FOR MODES */
+        .mode-d .state:hover { border-color: var(--active); cursor: pointer; background: #eef2ff; }
+        .mode-e .state:hover { border-color: var(--edit); cursor: pointer; background: #f5f3ff; }
+        .mode-f .state:hover { border-color: var(--success); cursor: pointer; }
+        .mode-dead .state:hover { border-color: var(--danger); cursor: pointer; }
+
+        svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+        .arrow-line { stroke: black; stroke-width: 2.5; fill: none; marker-end: url(#arrowhead); pointer-events: auto; cursor: pointer; transition: stroke 0.2s, stroke-width 0.2s; }
+        
+        /* Edit Mode Arrow Hover */
+        .mode-e .arrow-line:hover { stroke: var(--edit); stroke-width: 4; }
+
+        .toolbar {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+            z-index: 100; display: flex; gap: 8px; background: #fff;
+            padding: 8px; border: var(--border); border-radius: 50px;
+            box-shadow: 0 4px 0 #000;
+        }
+
+        button {
+            font-family: inherit; border: 1px solid #000; padding: 6px 12px;
+            cursor: pointer; background: white; font-weight: bold; border-radius: 4px;
+        }
+        button.active { background: var(--primary); color: white; }
+
+        .sym-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 5px; }
+        .chip { border: 1px solid #000; text-align: center; padding: 4px; cursor: pointer; font-size: 12px; }
+        .chip.selected { background: var(--accent); font-weight: bold; }
+
+        .test-case-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .case-col { font-size: 11px; padding: 8px; border: 1px solid #ccc; background: #fff; border-radius: 4px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: center; }
+
+        .lbl { transition: color 0.2s, font-weight 0.2s, transform 0.2s; cursor: pointer; display: inline-block; }
+        .mode-e .lbl:hover { color: var(--edit); font-weight: bold; transform: scale(1.1); }
+        .remote-cursor {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 200;
+            transform: translate(-50%, -50%);
+        }
+        
+        .remote-cursor-label {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+            background: white;
+            border: 1px solid #000;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        
+    </style>
+</head>
+<body>
+
+    <div class="side-panel">
+        <h3 style="margin:0">1. Problem Design</h3>
+        <div class="q-builder">
+            <select id="q-type" onchange="generateGoal()">
+                <option value="starts">Starts with</option>
+                <option value="ends">Ends with</option>
+                <option value="contains">Contains</option>
+                <option value="even">Even # of</option>
+                <option value="odd">Odd # of</option>
+                <option value="exact">Exact match</option>
+                <option value="count">Count of symbol...</option>
+                <option value="mod">Length mod X == 0</option>
+                <option value="even_count">Even count of symbol...</option>
+            </select>
+            <input type="text" id="q-target" value="01" oninput="generateGoal()">
+            <div id="full-goal" style="font-size: 11px; margin-top:5px; font-weight: bold; color: var(--active);"></div>
+        </div>
+        
+        <label><b>Σ (Alphabet):</b></label>
+        <input type="text" id="sigma" value="0,1" oninput="updateAlphabet()">
+        <div id="chips" class="sym-grid"></div>
+
+        <div class="test-case-grid">
+            <div class="case-col" style="border-top: 3px solid var(--success)">
+                <b>Expected Accept:</b><div id="accept-list"></div>
+            </div>
+            <div class="case-col" style="border-top: 3px solid var(--danger)">
+                <b>Expected Reject:</b><div id="reject-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container" onclick="canvasClick(event)">
+        <div class="toolbar">
+            <button id="m-q" class="active" onclick="setMode('q')">+ State</button>
+            <button id="m-d" onclick="setMode('d')">+ Arrow</button>
+            <button id="m-f" onclick="setMode('f')">Final</button>
+            <button id="m-dead" onclick="setMode('dead')">Dead</button>
+            <button id="m-e" onclick="setMode('e')">Edit</button>
+            <button id="m-t" onclick="setMode('t')">Traverse</button>
+            <button onclick="clearAll()" style="color:var(--danger)">Reset</button>
+            <button id="m-min" onclick="minimizeDFA()" style="border-color: var(--success); color: var(--success);">Minimize</button>
+            <button id="m-export" onclick="exportReport()" style="border-color: var(--active); color: var(--active);">Export</button>
+        </div>
+        <svg id="svg-layer">
+            <defs>
+                <marker id="arrowhead" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+            </defs>
+        </svg>
+    </div>
+
+    <div class="side-panel">
+        <h3 style="margin:0">2. String Trace</h3>
+        <div style="background:#eee; padding:10px; border:2px solid #000; border-radius:5px">
+            <input type="text" id="trace-input" placeholder="Enter string..." style="width:100%; padding:8px; margin-bottom:10px;">
+            <div class="tape-container" id="tape"></div>
+            <div style="display:flex; gap:5px">
+                <button onclick="initTrace()" style="flex:1">Load</button>
+                <button onclick="stepTrace()" style="flex:1; background:var(--active); color:white">Step ⮕</button>
+            </div>
+            <div id="trace-msg" style="text-align:center; margin-top:10px; font-weight:bold; font-size:12px"></div>
+        </div>
+        <h3>3. Transition Table (δ)</h3>
+        <table id="delta-table"><thead id="table-head"></thead><tbody id="table-body"></tbody></table>
+    </div>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+<script>
+    /* ===== LIVE COLLAB ===== */
+const socket = io("http://localhost:3000");
+
+const cursors = {};
+let myCursorInfo = null;
+socket.on("sync-board", data => {
+    states = data.states;
+    transitions = data.transitions;
+    startStateId = data.startStateId;
+    alphabet = data.alphabet;
+    redrawAll();
+});
+function broadcastBoard() {
+    socket.emit("board-update", {
+        states,
+        transitions,
+        startStateId,
+        alphabet
+    });
+}
+
+    let mode = 'q', states = [], transitions = [], alphabet = ['0', '1'], selectedSyms = new Set();
+    let sourceNode = null, currentPathIdx = 0, activeStateId = null, startStateId = null;
+
+    const svg = document.getElementById('svg-layer'), container = document.getElementById('canvas-container');
+
+    function setMode(m) {
+        mode = m;
+        document.querySelectorAll('.toolbar button').forEach(b => b.classList.remove('active'));
+        document.getElementById('m-'+m).classList.add('active');
+        
+        // Add class to container for CSS hover selectors
+        container.className = 'mode-' + m;
+        
+        sourceNode = null;
+        redrawAll();
+    }
+
+    function updateAlphabet() {
+        alphabet = document.getElementById('sigma').value.split(',').map(s => s.trim()).filter(s => s);
+        renderChips(); renderTable(); generateGoal(); broadcastBoard();
+    }
+
+    function renderChips() {
+        const div = document.getElementById('chips'); div.innerHTML = '';
+        [...alphabet, 'ε'].forEach(s => {
+            const span = document.createElement('div');
+            span.className = `chip ${selectedSyms.has(s) ? 'selected' : ''}`;
+            span.innerText = s;
+            span.onclick = () => { if(selectedSyms.has(s)) selectedSyms.delete(s); else selectedSyms.add(s); renderChips(); };
+            div.appendChild(span);
+        });
+    }
+
+    function canvasClick(e) {
+        
+        if (mode === 'q' && e.target === container) {
+            
+
+            const id = `q${states.length}`;
+            if(states.length === 0) startStateId = id;
+            states.push({ id, x: e.offsetX, y: e.offsetY, isFinal: false, isDead: false, label: id });
+            redrawAll();
+            broadcastBoard();
+        }
+    }
+
+    function redrawAll() {
+        container.querySelectorAll('.state, .lbl').forEach(e => e.remove());
+        svg.querySelectorAll('.arrow-line').forEach(e => e.remove());
+        states.forEach(renderStateUI);
+        transitions.forEach(renderArrowUI);
+        renderTable();
+    }
+
+    function renderStateUI(s) {
+        const div = document.createElement('div');
+        div.className = `state ${s.isFinal ? 'final' : ''} ${s.isDead ? 'dead' : ''} ${activeStateId === s.id ? 'current' : ''} ${s.id === startStateId ? 'start-node' : ''}`;
+        div.style.left = (s.x - 30) + 'px'; div.style.top = (s.y - 30) + 'px';
+        div.innerHTML = s.label.includes('q') ? `q<sub>${s.label.substring(1)}</sub>` : s.label;
+        div.onclick = (e) => {
+            e.stopPropagation();
+            if(mode === 'd') handleLink(s);
+            if(mode === 'f') { s.isFinal = !s.isFinal; redrawAll(); }
+            if(mode === 'dead') { s.isDead = !s.isDead; redrawAll(); }
+            if(mode === 't') { activeStateId = s.id; startStateId = s.id; redrawAll(); }
+            if(mode === 'e') editState(s);
+        };
+        
+        // HOVER FEEDBACK FOR ARROW DRAWING
+        div.onmouseover = () => { if(mode === 'd' && sourceNode) div.style.boxShadow = '0 0 15px var(--active)'; };
+        div.onmouseout = () => { if(mode === 'd') div.style.boxShadow = ''; };
+        
+        container.appendChild(div);
+    }
+
+    function handleLink(target) {
+        if(!sourceNode) {
+            sourceNode = target;
+            document.getElementById(target.id).style.background = 'var(--accent)';
+        } else {
+            const label = selectedSyms.size > 0 ? Array.from(selectedSyms).join(',') : alphabet[0];
+            transitions.push({ from: sourceNode.id, to: target.id, label, id: Date.now() });
+            sourceNode = null; selectedSyms.clear(); renderChips(); redrawAll(); broadcastBoard();
+        }
+    }
+
+    function renderArrowUI(t) {
+        const s1 = states.find(s => s.id === t.from), s2 = states.find(s => s.id === t.to);
+        if(!s1 || !s2) return;
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const angle = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+        const x1 = s1.x + 30 * Math.cos(angle), y1 = s1.y + 30 * Math.sin(angle);
+        const x2 = s2.x - 35 * Math.cos(angle), y2 = s2.y - 35 * Math.sin(angle);
+
+        let d = (s1.id === s2.id) ? `M ${s1.x-15} ${s1.y-25} A 25 25 0 1 1 ${s1.x+15} ${s1.y-25}` : `M ${x1} ${y1} L ${x2} ${y2}`;
+        path.setAttribute("d", d); path.setAttribute("class", "arrow-line");
+        if(mode === 'e') path.onclick = (e) => { e.stopPropagation(); editArrow(t); };
+        svg.appendChild(path);
+
+        const lbl = document.createElement('div');
+        lbl.className = 'lbl'; lbl.style.position = 'absolute';
+        lbl.style.left = (s1.id === s2.id ? s1.x : (x1+x2)/2) + 'px';
+        lbl.style.top = (s1.id === s2.id ? s1.y - 85 : (y1+y2)/2 - 20) + 'px';
+        lbl.style.background = 'white'; lbl.style.padding = '2px'; lbl.innerText = t.label;
+        if(mode === 'e') lbl.onclick = () => editArrow(t);
+        container.appendChild(lbl);
+    }
+
+    function editState(s) {
+        const action = prompt("(1) Rename (2) Delete (3) Cancel", "1");
+        if(action === "1") s.label = prompt("New name:", s.label) || s.label;
+        if(action === "2") { 
+            states = states.filter(x => x.id !== s.id); 
+            transitions = transitions.filter(t => t.from !== s.id && t.to !== s.id); 
+            if(startStateId === s.id) startStateId = states[0]?.id || null;
+        }
+        redrawAll();
+        broadcastBoard();
+    }
+
+    function editArrow(t) {
+        const action = prompt("(1) Rename/Change symbols (2) Delete (3) Cancel", "1");
+        if(action === "1") t.label = prompt("New labels:", t.label) || t.label;
+        if(action === "2") transitions = transitions.filter(x => x.id !== t.id);
+        redrawAll();
+        broadcastBoard();
+    }
+
+    function renderTable() {
+        const head = document.getElementById('table-head'), body = document.getElementById('table-body');
+        head.innerHTML = `<tr><th>δ</th>${alphabet.map(a => `<th>${a}</th>`).join('')}</tr>`;
+        body.innerHTML = states.map(s => {
+            let row = `<tr><td>${s.id === startStateId ? '→' : ''}${s.isFinal ? '*' : ''}${s.label}</td>`;
+            alphabet.forEach(a => {
+                const ds = transitions.filter(t => t.from === s.id && t.label.split(',').map(l => l.trim()).includes(a)).map(t => states.find(x => x.id === t.to)?.label);
+                row += `<td>${ds.join(',') || '-'}</td>`;
+            });
+            return row + '</tr>';
+        }).join('');
+    }
+
+    // Logic for validation
+    const checkLogic = (str, type, target) => {
+        const charCount = (s, c) => (s.split(c).length - 1);
+        const sig = alphabet.length > 0 ? alphabet : ['0', '1'];
+        switch(type) {
+            case "starts": return str.startsWith(target);
+            case "ends": return str.endsWith(target);
+            case "contains": return str.includes(target);
+            case "exact": return str === target;
+            case "count": return charCount(str, sig[0]) === parseInt(target);
+            case "mod": return str.length % parseInt(target) === 0;
+            case "even_count": return charCount(str, sig[0]) % 2 === 0;
+            case "odd_count": return charCount(str, sig[0]) % 2 !== 0;
+            case "even": return str.length % 2 === 0;
+            case "odd": return str.length % 2 !== 0;
+            default: return false;
+        }
+    };
+
+    function getValidCases(type, target, sigma) {
+        let results = [];
+        let base = target;
+        if (["count", "mod", "even_count", "odd_count", "even", "odd"].includes(type)) base = sigma[0];
+        let pool = [base, sigma[0] + base, base + sigma[0], sigma[1%sigma.length] + base, base + base, ""];
+        pool.forEach(s => { if(checkLogic(s, type, target)) results.push(s || "ε"); });
+        return [...new Set(results)].slice(0, 5);
+    }
+
+    function getInvalidCases(type, target, sigma) {
+        let results = [];
+        let pool = ["ε", sigma[0], sigma[1%sigma.length], sigma[0] + sigma[0], sigma[1%sigma.length] + sigma[0], "010101"];
+        pool.forEach(s => { if(!checkLogic(s, type, target)) results.push(s || "ε"); });
+        return [...new Set(results)].slice(0, 5);
+    }
+
+    function generateGoal() {
+        const type = document.getElementById('q-type').value;
+        const target = document.getElementById('q-target').value;
+        const sigma = alphabet.length > 0 ? alphabet : ['0', '1'];
+        const sigSet = `{${sigma.join(',')}}`;
+        
+        let condition = "";
+        const symbol = sigma[0] || 'a';
+
+        switch(type) {
+            case "starts": 
+                condition = `w starts with "${target}"`; 
+                break;
+            case "ends": 
+                condition = `w ends with "${target}"`; 
+                break;
+            case "contains": 
+                condition = `w contains the substring "${target}"`; 
+                break;
+            case "even": 
+                condition = `|w| is even`; 
+                break;
+            case "odd": 
+                condition = `|w| is odd`; 
+                break;
+            case "exact": 
+                condition = `w = "${target}"`; 
+                break;
+            case "count": 
+                condition = `n_${symbol}(w) = ${target}`; 
+                break;
+            case "mod": 
+                condition = `|w| mod ${target} = 0`; 
+                break;
+            case "even_count": 
+                condition = `n_${symbol}(w) is even`; 
+                break;
+            case "odd_count": 
+                condition = `n_${symbol}(w) is odd`; 
+                break;
+            default: 
+                condition = `w satisfies condition`;
+        }
+
+        let formal = `L = { w | w ∈ ${sigSet}* and ${condition} }`;
+        
+        document.getElementById('full-goal').innerText = formal;
+        document.getElementById('accept-list').innerHTML = getValidCases(type, target, sigma).join('<br>');
+        document.getElementById('reject-list').innerHTML = getInvalidCases(type, target, sigma).join('<br>');
+    }
+
+    function initTrace() {
+        const str = document.getElementById('trace-input').value;
+        const tape = document.getElementById('tape'); tape.innerHTML = '<div id="string-ptr">⬆</div>';
+        str.split('').forEach(char => {
+            const cell = document.createElement('div'); cell.className = 'tape-cell'; cell.innerText = char;
+            tape.appendChild(cell);
+        });
+        currentPathIdx = 0; activeStateId = startStateId;
+        document.getElementById('trace-msg').innerText = "Starting at " + (states.find(s=>s.id===startStateId)?.label || "q0");
+        redrawAll(); updateTapeUI();
+    }
+
+    function updateTapeUI() {
+        const cells = document.querySelectorAll('.tape-cell');
+        const ptr = document.getElementById('string-ptr');
+        if(cells[currentPathIdx]) {
+            ptr.style.left = (cells[currentPathIdx].offsetLeft + 10) + 'px';
+            cells.forEach((c, i) => c.classList.toggle('head', i === currentPathIdx));
+        } else if (currentPathIdx === cells.length && cells.length > 0) {
+            ptr.style.left = (cells[cells.length-1].offsetLeft + 45) + 'px';
+        }
+    }
+    
+    function stepTrace() {
+        const str = document.getElementById('trace-input').value;
+        const currentState = states.find(s => s.id === activeStateId);
+        if(currentState && currentState.isDead) {
+            document.getElementById('trace-msg').innerText = `Bahishkaar! Reached Dead State '${currentState.label}' `;
+            document.getElementById('trace-msg').style.color = 'var(--danger)';
+            return;
+        }
+        if (currentPathIdx >= str.length) {
+            const f = currentState?.isFinal;
+            document.getElementById('trace-msg').innerText = f ? "Qabool h" : "Bahishkaar!";
+            document.getElementById('trace-msg').style.color = f ? 'var(--success)' : 'var(--danger)';
+            return;
+        }
+        const char = str[currentPathIdx];
+        const t = transitions.find(t => t.from === activeStateId && t.label.split(',').some(lbl => lbl.trim() === char));
+        if (t) {
+            activeStateId = t.to; currentPathIdx++;
+            redrawAll(); updateTapeUI();
+            document.getElementById('trace-msg').innerText = `Read '${char}' ⮕ moved to ${states.find(x=>x.id===t.to).label}`;
+        } else {
+            document.getElementById('trace-msg').innerText = `HALT: No transition for '${char}'!`;
+            document.getElementById('trace-msg').style.color = 'var(--danger)';
+        }
+    }
+
+    function minimizeDFA() {
+        if (states.length < 2) return;
+    
+        // Step 1: Initial Partition (Final States vs Non-Final States)
+        let groups = [];
+        let nonFinal = states.filter(s => !s.isFinal).map(s => s.id);
+        let final = states.filter(s => s.isFinal).map(s => s.id);
+        if (nonFinal.length) groups.push(nonFinal);
+        if (final.length) groups.push(final);
+    
+        let changed = true;
+        while (changed) {
+            changed = false;
+            let nextPartition = [];
+            for (let group of groups) {
+                if (group.length <= 1) { nextPartition.push(group); continue; }
+    
+                let subgroups = [];
+                for (let stateId of group) {
+                    let found = false;
+                    for (let sub of subgroups) {
+                        let repId = sub[0];
+                        let identical = true;
+                        for (let char of alphabet) {
+                            let t1 = transitions.find(t => t.from === stateId && t.label.split(',').map(l=>l.trim()).includes(char))?.to;
+                            let t2 = transitions.find(t => t.from === repId && t.label.split(',').map(l=>l.trim()).includes(char))?.to;
+                            if (groups.findIndex(g => g.includes(t1)) !== groups.findIndex(g => g.includes(t2))) {
+                                identical = false; break;
+                            }
+                        }
+                        if (identical) { sub.push(stateId); found = true; break; }
+                    }
+                    if (!found) subgroups.push([stateId]);
+                }
+                if (subgroups.length > 1) changed = true;
+                nextPartition.push(...subgroups);
+            }
+            groups = nextPartition;
+        }
+    
+        if (groups.length === states.length) { alert("DFA is already minimal!"); return; }
+    
+        // Step 2: Remap old states to new merged states
+        let stateMap = {};
+        let newStates = groups.map((group, i) => {
+            let original = states.find(s => s.id === group[0]);
+            let newId = "min" + i;
+            group.forEach(oldId => stateMap[oldId] = newId);
+            return { ...original, id: newId, label: "qm" + i };
+        });
+    
+        // Step 3: Rebuild unique transitions
+        let newTransitions = [];
+        let seen = new Set();
+        transitions.forEach(t => {
+            let nF = stateMap[t.from], nT = stateMap[t.to];
+            let key = `${nF}-${nT}-${t.label}`;
+            if (nF && nT && !seen.has(key)) {
+                newTransitions.push({ from: nF, to: nT, label: t.label, id: Date.now() + Math.random() });
+                seen.add(key);
+            }
+        });
+    
+        states = newStates; transitions = newTransitions;
+        startStateId = stateMap[startStateId]; activeStateId = startStateId;
+        redrawAll();
+    }
+   
+    
+
+    
+
+    function clearAll() { location.reload(); }
+    window.onload = () => { updateAlphabet(); };
+
+
+
+</script>
+</body>
+</html>
