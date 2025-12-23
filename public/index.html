@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TOC: Logic is Magic</title>
+    <title>TOC = Logic is Magic</title>
     <style>
         :root {
             --primary: #000;
@@ -414,7 +414,7 @@ function broadcastBoard() {
         container.appendChild(lbl);
     }
 */
-
+/* 
     function renderArrowUI(t) {
     const s1 = states.find(s => s.id === t.from), s2 = states.find(s => s.id === t.to);
     if(!s1 || !s2) return;
@@ -467,6 +467,78 @@ function broadcastBoard() {
     if(mode === 'e') lbl.onclick = () => editArrow(t);
     container.appendChild(lbl);
 }
+*/
+
+    /* adding offSet to each newArrow connection over circle */
+    function renderArrowUI(t) {
+    const s1 = states.find(s => s.id === t.from), s2 = states.find(s => s.id === t.to);
+    if(!s1 || !s2) return;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    
+    let d = "";
+    let lx, ly;
+
+    if(t.type === 'self' || s1.id === s2.id) {
+        // SELF LOOP (No change needed here as it uses fixed anchor points)
+        d = `M ${s1.x-15} ${s1.y-25} A 25 25 0 1 1 ${s1.x+15} ${s1.y-25}`;
+        lx = s1.x; ly = s1.y - 85;
+    } else {
+        const angle = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+        
+        // Perpendicular angle for shifting the touch points
+        const pAngle = angle + Math.PI / 2;
+        const offsetDist = 12; // Distance to separate arrow tips
+
+        let x1 = s1.x + 30 * Math.cos(angle);
+        let y1 = s1.y + 30 * Math.sin(angle);
+        let x2 = s2.x - 35 * Math.cos(angle);
+        let y2 = s2.y - 35 * Math.sin(angle);
+
+        const midX = (x1 + x2) / 2;
+        const midY = (y1 + y2) / 2;
+
+        if(t.type === 'up') {
+            // Shift points along the perpendicular axis to prevent collision
+            x1 += offsetDist * Math.cos(pAngle);
+            y1 += offsetDist * Math.sin(pAngle);
+            x2 += offsetDist * Math.cos(pAngle);
+            y2 += offsetDist * Math.sin(pAngle);
+
+            const cpX = midX + (y1 - y2) * 0.35;
+            const cpY = midY + (x2 - x1) * 0.35;
+            d = `M ${x1} ${y1} Q ${cpX} ${cpY} ${x2} ${y2}`;
+            lx = cpX; ly = cpY - 15;
+        } else if(t.type === 'down') {
+            // Shift points the opposite way for down curve
+            x1 -= offsetDist * Math.cos(pAngle);
+            y1 -= offsetDist * Math.sin(pAngle);
+            x2 -= offsetDist * Math.cos(pAngle);
+            y2 -= offsetDist * Math.sin(pAngle);
+
+            const cpX = midX - (y1 - y2) * 0.35;
+            const cpY = midY - (x2 - x1) * 0.35;
+            d = `M ${x1} ${y1} Q ${cpX} ${cpY} ${x2} ${y2}`;
+            lx = cpX; ly = cpY + 25;
+        } else {
+            // Straight remains centered
+            d = `M ${x1} ${y1} L ${x2} ${y2}`;
+            lx = midX; ly = midY - 20;
+        }
+    }
+
+    path.setAttribute("d", d);
+    path.setAttribute("class", "arrow-line");
+    if(mode === 'e') path.onclick = (e) => { e.stopPropagation(); editArrow(t); };
+    svg.appendChild(path);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'lbl'; lbl.style.position = 'absolute';
+    lbl.style.left = lx + 'px'; lbl.style.top = ly + 'px';
+    lbl.style.background = 'white'; lbl.style.padding = '2px'; lbl.innerText = t.label;
+    if(mode === 'e') lbl.onclick = () => editArrow(t);
+    container.appendChild(lbl);
+}
+    
     function editState(s) {
         const action = prompt("(1) Rename (2) Delete (3) Cancel", "1");
         if(action === "1") s.label = prompt("New name:", s.label) || s.label;
