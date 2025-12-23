@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TOC = Logic is Magic</title>
+    <title>TOC: Logic is Magic</title>
     <style>
         :root {
             --primary: #000;
@@ -315,6 +315,7 @@ function broadcastBoard() {
         div.className = `state ${s.isFinal ? 'final' : ''} ${s.isDead ? 'dead' : ''} ${activeStateId === s.id ? 'current' : ''} ${s.id === startStateId ? 'start-node' : ''}`;
         div.style.left = (s.x - 30) + 'px'; div.style.top = (s.y - 30) + 'px';
         div.innerHTML = s.label.includes('q') ? `q<sub>${s.label.substring(1)}</sub>` : s.label;
+        /*
         div.onclick = (e) => {
             e.stopPropagation();
             if(mode === 'd') handleLink(s);
@@ -323,6 +324,30 @@ function broadcastBoard() {
             if(mode === 't') { activeStateId = s.id; startStateId = s.id; redrawAll(); }
             if(mode === 'e') editState(s);
         };
+        */
+
+        div.onclick = (e) => {
+    e.stopPropagation();
+    if(mode === 'd') handleLink(s);
+    
+    if(mode === 'f') { 
+        s.isFinal = !s.isFinal; 
+        redrawAll(); 
+        broadcastBoard(); // Send the "Final State" update to friend
+    }
+    if(mode === 'dead') { 
+        s.isDead = !s.isDead; 
+        redrawAll(); 
+        broadcastBoard(); // Send the "Dead State" update to friend
+    }
+    if(mode === 't') { 
+        activeStateId = s.id; 
+        startStateId = s.id; 
+        redrawAll(); 
+        broadcastBoard(); // Sync the traversal/start state
+    }
+    if(mode === 'e') editState(s);
+};
         
         // HOVER FEEDBACK FOR ARROW DRAWING
         div.onmouseover = () => { if(mode === 'd' && sourceNode) div.style.boxShadow = '0 0 15px var(--active)'; };
@@ -682,7 +707,17 @@ function broadcastBoard() {
 
     
 
-    function clearAll() { location.reload(); }
+    /* function clearAll() { location.reload(); } */
+    function clearAll() { 
+    if(confirm("Clear the entire board for everyone?")) {
+        states = []; 
+        transitions = []; 
+        startStateId = null;
+        
+        broadcastBoard(); // Tells the server to tell your friend the board is now empty
+        location.reload(); 
+    }
+}
     window.onload = () => { updateAlphabet(); };
 
 
