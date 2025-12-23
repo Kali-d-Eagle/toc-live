@@ -163,6 +163,21 @@
         <input type="text" id="sigma" value="0,1" oninput="updateAlphabet()">
         <div id="chips" class="sym-grid"></div>
 
+        <!-- .... -->
+        <div style="margin-top:10px;">
+            <b>Arrow Type:</b>
+            <div id="arrow-types" class="sym-grid" style="margin-top:5px">
+                <div class="chip selected" onclick="setArrowType('straight', this)">Straight</div>
+                <div class="chip" onclick="setArrowType('self', this)">Self Loop</div>
+                <div class="chip" onclick="setArrowType('up', this)">Up Curve</div>
+                <div class="chip" onclick="setArrowType('down', this)">Down Curve</div>
+            </div>
+        </div>
+
+        <!-- .... --> 
+
+        
+
         <div class="test-case-grid">
             <div class="case-col" style="border-top: 3px solid var(--success)">
                 <b>Expected Accept:</b><div id="accept-list"></div>
@@ -213,7 +228,15 @@
 <script>
     /* ===== LIVE COLLAB ===== */
 const socket = io();
+/* .... */
+let currentArrowType = 'straight';
 
+function setArrowType(type, el) {
+    currentArrowType = type;
+    document.querySelectorAll('#arrow-types .chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+}
+/* .... */
 
 const cursors = {};
 let myCursorInfo = null;
@@ -308,6 +331,8 @@ function broadcastBoard() {
         container.appendChild(div);
     }
 
+    /*
+
     function handleLink(target) {
         if(!sourceNode) {
             sourceNode = target;
@@ -318,7 +343,30 @@ function broadcastBoard() {
             sourceNode = null; selectedSyms.clear(); renderChips(); redrawAll(); broadcastBoard();
         }
     }
+    */
 
+    function handleLink(target) {
+    if(!sourceNode) {
+        sourceNode = target;
+        document.getElementById(target.id).style.background = 'var(--accent)';
+    } else {
+        const label = selectedSyms.size > 0 ? Array.from(selectedSyms).join(',') : alphabet[0];
+        // ADDED: type property based on selection
+        transitions.push({ 
+            from: sourceNode.id, 
+            to: target.id, 
+            label, 
+            type: (sourceNode.id === target.id) ? 'self' : currentArrowType,
+            id: Date.now() 
+        });
+        sourceNode = null; 
+        selectedSyms.clear(); 
+        renderChips(); 
+        redrawAll(); 
+        broadcastBoard();
+    }
+}
+/*
     function renderArrowUI(t) {
         const s1 = states.find(s => s.id === t.from), s2 = states.find(s => s.id === t.to);
         if(!s1 || !s2) return;
@@ -340,7 +388,60 @@ function broadcastBoard() {
         if(mode === 'e') lbl.onclick = () => editArrow(t);
         container.appendChild(lbl);
     }
+*/
 
+    function renderArrowUI(t) {
+    const s1 = states.find(s => s.id === t.from), s2 = states.find(s => s.id === t.to);
+    if(!s1 || !s2) return;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    
+    let d = "";
+    let lx, ly; // Label coordinates
+
+    if(t.type === 'self' || s1.id === s2.id) {
+        // 1. SELF LOOP
+        d = `M ${s1.x-10} ${s1.y-25} A 25 25 0 1 1 ${s1.x+10} ${s1.y-25}`;
+        lx = s1.x;
+        ly = s1.y - 85;
+    } else {
+        const angle = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+        const x1 = s1.x + 30 * Math.cos(angle), y1 = s1.y + 30 * Math.sin(angle);
+        const x2 = s2.x - 35 * Math.cos(angle), y2 = s2.y - 35 * Math.sin(angle);
+        
+        const midX = (x1 + x2) / 2;
+        const midY = (y1 + y2) / 2;
+
+        if(t.type === 'up') {
+            // 3. UPPER CURVE
+            const cpX = midX + (y1 - y2) * 0.3;
+            const cpY = midY + (x2 - x1) * 0.3;
+            d = `M ${x1} ${y1} Q ${cpX} ${cpY} ${x2} ${y2}`;
+            lx = cpX; ly = cpY - 10;
+        } else if(t.type === 'down') {
+            // 4. LOWER CURVE
+            const cpX = midX - (y1 - y2) * 0.3;
+            const cpY = midY - (x2 - x1) * 0.3;
+            d = `M ${x1} ${y1} Q ${cpX} ${cpY} ${x2} ${y2}`;
+            lx = cpX; ly = cpY + 20;
+        } else {
+            // 2. STRAIGHT
+            d = `M ${x1} ${y1} L ${x2} ${y2}`;
+            lx = midX; ly = midY - 20;
+        }
+    }
+
+    path.setAttribute("d", d);
+    path.setAttribute("class", "arrow-line");
+    if(mode === 'e') path.onclick = (e) => { e.stopPropagation(); editArrow(t); };
+    svg.appendChild(path);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'lbl'; lbl.style.position = 'absolute';
+    lbl.style.left = lx + 'px'; lbl.style.top = ly + 'px';
+    lbl.style.background = 'white'; lbl.style.padding = '2px'; lbl.innerText = t.label;
+    if(mode === 'e') lbl.onclick = () => editArrow(t);
+    container.appendChild(lbl);
+}
     function editState(s) {
         const action = prompt("(1) Rename (2) Delete (3) Cancel", "1");
         if(action === "1") s.label = prompt("New name:", s.label) || s.label;
